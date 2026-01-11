@@ -76,26 +76,50 @@ class AccountData(BaseModel):
         return v
 
 class TransactionData(BaseModel):
-    """Transaction information schema with validation
-    
-    REQUIRED FIELDS (examine data/transactions.csv):
-    - transaction_id: str = Unique identifier like "TXN_B24455F3"
-    - account_id: str = Must match AccountData.account_id
-    - transaction_date: str = Date in YYYY-MM-DD format
-    - transaction_type: str = Type like "Cash_Deposit", "Wire_Transfer"
-    - amount: float = Transaction amount (negative for withdrawals)
-    - description: str = Description like "Cash deposit at branch"
-    - method: str = Method like "Wire", "ACH", "ATM", "Teller"
-    
-    OPTIONAL FIELDS:
-    - counterparty: Optional[str] = Other party in transaction
-    - location: Optional[str] = Transaction location or branch
-    
-    HINT: amount can be negative for debits/withdrawals
-    HINT: Use descriptive field descriptions for clarity
-    """
-    # TODO: Implement the TransactionData schema
-    pass
+    transaction_id: str = Field(..., description="Unique transaction id like TXN_B24455F3")
+    account_id: str = Field(..., description="Account id this transaction belongs to")
+    transaction_date: str = Field(..., description="Date in YYYY-MM-DD")
+    transaction_type: Literal[
+        "ACH_Credit",
+        "ACH_Debit",
+        "ATM_Withdrawal",
+        "Cash_Deposit",
+        "Cash_Withdrawal",
+        "Check_Deposit",
+        "Debit_Purchase",
+        "Direct_Deposit",
+        "Online_Transfer",
+        "Wire_Transfer",
+        "Wire_Transfer_Credit",
+        "Wire_Transfer_Debit",
+    ] = Field(..., description="Transaction category")
+    amount: float = Field(..., description="Amount can be negative for debits/withdrawals")
+    description: str = Field(..., description="Transaction description")
+    method: Literal["ATM", "Branch", "Cash", "Electronic", "Mobile", "Online", "Wire"] = Field(
+        ..., description="Channel or method"
+    )
+    counterparty: Optional[str] = Field(None, description="Other party involved, if any")
+    location: Optional[str] = Field(None, description="Location or branch, if any")
+
+    @field_validator("transaction_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+    @field_validator("counterparty", "location", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        return None if v == "" else v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, v):
+        # Ensure numeric and not NaN
+        val = float(v)
+        if val != val:  # NaN check
+            raise ValueError("amount cannot be NaN")
+        return val
 
 class CaseData(BaseModel):
     """Unified case object combining all data sources
