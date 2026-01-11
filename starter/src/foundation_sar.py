@@ -157,21 +157,13 @@ class CaseData(BaseModel):
         return v
 
 class RiskAnalystOutput(BaseModel):
-    """Risk Analyst agent structured output
-    
-    REQUIRED FIELDS (for Chain-of-Thought agent output):
-    - classification: Literal['Structuring', 'Sanctions', 'Fraud', 'Money_Laundering', 'Other']
-    - confidence_score: float = Confidence between 0.0 and 1.0 (use ge=0.0, le=1.0)
-    - reasoning: str = Step-by-step analysis reasoning (max 500 chars)
-    - key_indicators: List[str] = List of suspicious indicators found
-    - risk_level: Literal['Low', 'Medium', 'High', 'Critical'] = Risk assessment
-    
-    HINT: Use Literal types to restrict classification and risk_level values
-    HINT: Use Field(..., ge=0.0, le=1.0) for confidence_score validation
-    HINT: Use Field(..., max_length=500) for reasoning length limit
-    """
-    # TODO: Implement the RiskAnalystOutput schema
-    pass
+    classification: Literal["Structuring", "Sanctions", "Fraud", "Money_Laundering", "Other"] = Field(
+        ..., description="Primary typology classification"
+    )
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Model/analyst confidence 0.0–1.0")
+    reasoning: str = Field(..., max_length=500, description="Step-by-step rationale")
+    key_indicators: List[str] = Field(..., description="Suspicious indicators found")
+    risk_level: Literal["Low", "Medium", "High", "Critical"] = Field(..., description="Overall risk level")
 
 class ComplianceOfficerOutput(BaseModel):
     """Compliance Officer agent structured output
