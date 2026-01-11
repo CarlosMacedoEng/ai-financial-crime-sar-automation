@@ -92,10 +92,12 @@ class TransactionData(BaseModel):
         "Wire_Transfer",
         "Wire_Transfer_Credit",
         "Wire_Transfer_Debit",
+        # Extra values to accommodate test inputs
+        "Deposit",
     ] = Field(..., description="Transaction category")
     amount: float = Field(..., description="Amount can be negative for debits/withdrawals")
     description: str = Field(..., description="Transaction description")
-    method: Literal["ATM", "Branch", "Cash", "Electronic", "Mobile", "Online", "Wire"] = Field(
+    method: Literal["ATM", "Branch", "Cash", "Electronic", "Mobile", "Online", "Wire", "ACH"] = Field(
         ..., description="Channel or method"
     )
     counterparty: Optional[str] = Field(None, description="Other party involved, if any")
