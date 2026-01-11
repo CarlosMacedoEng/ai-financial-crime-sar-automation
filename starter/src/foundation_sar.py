@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 import uuid
 import os
+from typing import Literal
 
 # ===== TODO: IMPLEMENT PYDANTIC SCHEMAS =====
 
@@ -58,28 +59,21 @@ class CustomerData(BaseModel):
         if not v.isdigit() or len(v) != 4:
             raise ValueError("ssn_last_4 must be 4 digits")
         return v
-    
-    
-
 
 class AccountData(BaseModel):
-    """Account information schema with validation
-    
-    REQUIRED FIELDS (examine data/accounts.csv):
-    - account_id: str = Unique identifier like "CUST_0001_ACC_1"
-    - customer_id: str = Must match CustomerData.customer_id
-    - account_type: str = Type like "Checking", "Savings", "Money_Market"
-    - opening_date: str = Date in YYYY-MM-DD format
-    - current_balance: float = Current balance (can be negative)
-    - average_monthly_balance: float = Average balance
-    - status: str = Status like "Active", "Closed", "Suspended"
-    
-    HINT: All fields are required for account data
-    HINT: Use float for monetary amounts
-    HINT: current_balance can be negative for overdrafts
-    """
-    # TODO: Implement the AccountData schema
-    pass
+    account_id: str = Field(..., description="Unique account identifier like CUST_0001_ACC_1")
+    customer_id: str = Field(..., description="Owning customer_id")
+    account_type: Literal["Checking", "Savings", "Money_Market"] = Field(...)
+    opening_date: str = Field(..., description="Opening date in YYYY-MM-DD")
+    current_balance: float = Field(..., description="Current balance (can be negative for overdraft)")
+    average_monthly_balance: float = Field(..., description="Average monthly balance")
+    status: Literal["Active", "Closed", "Suspended"] = Field(...)
+
+    @field_validator("opening_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
 
 class TransactionData(BaseModel):
     """Transaction information schema with validation
