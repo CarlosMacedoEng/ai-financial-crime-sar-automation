@@ -166,23 +166,11 @@ class RiskAnalystOutput(BaseModel):
     risk_level: Literal["Low", "Medium", "High", "Critical"] = Field(..., description="Overall risk level")
 
 class ComplianceOfficerOutput(BaseModel):
-    """Compliance Officer agent structured output
-    
-    REQUIRED FIELDS (for ReACT agent output):
-    - narrative: str = Regulatory narrative text (max 1000 chars for ≤200 words)
-    - narrative_reasoning: str = Reasoning for narrative construction (max 500 chars)
-    - regulatory_citations: List[str] = List of relevant regulations like:
-      * "31 CFR 1020.320 (BSA)"
-      * "12 CFR 21.11 (SAR Filing)"
-      * "FinCEN SAR Instructions"
-    - completeness_check: bool = Whether narrative meets all requirements
-    
-    HINT: Use Field(..., max_length=1000) for narrative length limit
-    HINT: Use Field(..., max_length=500) for reasoning length limit
-    HINT: Use bool type for completeness_check
-    """
-    # TODO: Implement the ComplianceOfficerOutput schema
-    pass
+    narrative: str = Field(..., max_length=1000, description="Regulatory SAR narrative (≤ ~200 words)")
+    narrative_reasoning: str = Field(..., max_length=500, description="Reasoning behind the narrative")
+    regulatory_citations: List[str] = Field(..., description="Relevant regulations (e.g., 31 CFR 1020.320)")
+    completeness_check: bool = Field(..., description="Whether the narrative meets all requirements")
+
 
 # ===== TODO: IMPLEMENT AUDIT LOGGING =====
 
