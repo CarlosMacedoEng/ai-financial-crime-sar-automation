@@ -35,28 +35,32 @@ import os
 # ===== TODO: IMPLEMENT PYDANTIC SCHEMAS =====
 
 class CustomerData(BaseModel):
-    """Customer information schema with validation
+    customer_id: str = Field(..., description="Unique customer identifier like CUST_0001")
+    name: str = Field(..., description="Full customer name")
+    date_of_birth: str = Field(..., description="DOB in YYYY-MM-DD")
+    ssn_last_4: str = Field(..., min_length=4, max_length=4, description="Last 4 SSN digits")
+    address: str = Field(..., description="Full mailing address")
+    customer_since: str = Field(..., description="Customer start date YYYY-MM-DD")
+    risk_rating: Literal["Low", "Medium", "High"] = Field(..., description="Customer risk rating")
+    phone: Optional[str] = Field(None, description="Contact phone number")
+    occupation: Optional[str] = Field(None, description="Occupation/title")
+    annual_income: Optional[float] = Field(None, ge=0, description="Annual income in USD")
+
+    @field_validator("date_of_birth", "customer_since")
+    @classmethod
+    def validate_dates(cls, v: str) -> str:
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+    @field_validator("ssn_last_4")
+    @classmethod
+    def validate_ssn(cls, v: str) -> str:
+        if not v.isdigit() or len(v) != 4:
+            raise ValueError("ssn_last_4 must be 4 digits")
+        return v
     
-    REQUIRED FIELDS (examine data/customers.csv):
-    - customer_id: str = Unique identifier like "CUST_0001"
-    - name: str = Full customer name like "John Smith"
-    - date_of_birth: str = Date in YYYY-MM-DD format like "1985-03-15"
-    - ssn_last_4: str = Last 4 digits like "1234"
-    - address: str = Full address like "123 Main St, City, ST 12345"
-    - customer_since: str = Date in YYYY-MM-DD format like "2010-01-15"
-    - risk_rating: Literal['Low', 'Medium', 'High'] = Risk assessment
     
-    OPTIONAL FIELDS:
-    - phone: Optional[str] = Phone number like "555-123-4567"
-    - occupation: Optional[str] = Job title like "Software Engineer"
-    - annual_income: Optional[int] = Yearly income like 75000
-    
-    HINT: Use Field(..., description="...") for required fields
-    HINT: Use Field(None, description="...") for optional fields
-    HINT: Use Literal type for risk_rating to restrict values
-    """
-    # TODO: Implement the CustomerData schema with proper fields and validation
-    pass
+
 
 class AccountData(BaseModel):
     """Account information schema with validation
