@@ -122,29 +122,39 @@ class TransactionData(BaseModel):
         return val
 
 class CaseData(BaseModel):
-    """Unified case object combining all data sources
-    
-    REQUIRED FIELDS:
-    - case_id: str = Unique case identifier (generate with uuid)
-    - customer: CustomerData = Customer information object
-    - accounts: List[AccountData] = List of customer's accounts
-    - transactions: List[TransactionData] = List of suspicious transactions
-    - case_created_at: str = ISO timestamp when case was created
-    - data_sources: Dict[str, str] = Source tracking with keys like:
-      * "customer_source": "csv_extract_20241219"
-      * "account_source": "csv_extract_20241219" 
-      * "transaction_source": "csv_extract_20241219"
-    
-    VALIDATION RULES:
-    - transactions list cannot be empty (use @field_validator)
-    - All accounts should belong to the same customer
-    - All transactions should belong to accounts in the case
-    
-    HINT: Use @field_validator('transactions') with @classmethod decorator
-    HINT: Check if not v: raise ValueError("message") for empty validation
-    """
-    # TODO: Implement the CaseData schema with validation
-    pass
+    case_id: str = Field(..., description="Unique case identifier")
+    customer: CustomerData = Field(..., description="Customer information")
+    accounts: List[AccountData] = Field(..., description="Accounts for this customer")
+    transactions: List[TransactionData] = Field(..., description="Transactions tied to these accounts")
+    case_created_at: str = Field(..., description="Case creation timestamp (ISO-8601)")
+    data_sources: Dict[str, str] = Field(..., description="Data lineage metadata")
+
+    @field_validator("transactions")
+    @classmethod
+    def validate_transactions_not_empty(cls, v: List[TransactionData]) -> List[TransactionData]:
+        if not v:
+            raise ValueError("transactions cannot be empty")
+        return v
+
+    @field_validator("accounts")
+    @classmethod
+    def validate_accounts_belong_to_customer(cls, v: List[AccountData], info):
+        customer = info.data.get("customer")
+        if customer:
+            for acc in v:
+                if acc.customer_id != customer.customer_id:
+                    raise ValueError(f"Account {acc.account_id} does not belong to customer {customer.customer_id}")
+        return v
+
+    @field_validator("transactions")
+    @classmethod
+    def validate_transactions_belong_to_accounts(cls, v: List[TransactionData], info):
+        accounts = info.data.get("accounts") or []
+        account_ids = {acc.account_id for acc in accounts}
+        for txn in v:
+            if txn.account_id not in account_ids:
+                raise ValueError(f"Transaction {txn.transaction_id} not linked to provided accounts")
+        return v
 
 class RiskAnalystOutput(BaseModel):
     """Risk Analyst agent structured output
