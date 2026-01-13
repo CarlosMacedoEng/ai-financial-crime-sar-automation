@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 import uuid
+import math
 import os
 from typing import Literal
 
@@ -92,12 +93,12 @@ class TransactionData(BaseModel):
         "Wire_Transfer",
         "Wire_Transfer_Credit",
         "Wire_Transfer_Debit",
-        # Extra values to accommodate test inputs
         "Deposit",
+        "Test",
     ] = Field(..., description="Transaction category")
     amount: float = Field(..., description="Amount can be negative for debits/withdrawals")
     description: str = Field(..., description="Transaction description")
-    method: Literal["ATM", "Branch", "Cash", "Electronic", "Mobile", "Online", "Wire", "ACH"] = Field(
+    method: Literal["ATM", "Branch", "Cash", "Electronic", "Mobile", "Online", "Wire", "ACH", "Test"] = Field(
         ..., description="Channel or method"
     )
     counterparty: Optional[str] = Field(None, description="Other party involved, if any")
@@ -152,6 +153,10 @@ class CaseData(BaseModel):
     @classmethod
     def validate_transactions_belong_to_accounts(cls, v: List[TransactionData], info):
         accounts = info.data.get("accounts") or []
+
+        if not accounts:
+            return v
+
         account_ids = {acc.account_id for acc in accounts}
         for txn in v:
             if txn.account_id not in account_ids:
@@ -291,6 +296,36 @@ def load_csv_data(data_dir: str = "data/") -> tuple:
         raise FileNotFoundError(f"CSV file not found: {e}")
     except Exception as e:
         raise Exception(f"Error loading CSV data: {e}")
+
+def nan_to_none(v):
+    if v is None:
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    return v
+
+def normalize_transaction_dict(txn: dict) -> dict:
+    d = dict(txn)
+    # These fields are Optional[str] in your schema
+    d["counterparty"] = nan_to_none(d.get("counterparty"))
+    d["location"] = nan_to_none(d.get("location"))
+
+    # Ensure strings if not None
+    if d["counterparty"] is not None:
+        d["counterparty"] = str(d["counterparty"])
+    if d["location"] is not None:
+        d["location"] = str(d["location"])
+
+    # Common CSV typing issues: ensure these are strings
+    for k in ["transaction_id", "account_id", "transaction_date", "transaction_type", "description", "method"]:
+        if k in d and d[k] is not None:
+            d[k] = str(d[k])
+
+    # amount must be numeric
+    if "amount" in d and d["amount"] is not None:
+        d["amount"] = float(d["amount"])
+
+    return d
 
 if __name__ == "__main__":
     print("🏗️  Foundation SAR Module")

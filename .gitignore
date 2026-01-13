@@ -1,2 +1,3 @@
 starter/src/__pycache__/*
 starter/tests/__pycache__/*
+starter/outputs/audit_logs/*

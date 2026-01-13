@@ -12,8 +12,8 @@ from datetime import datetime
 
 # Import risk analyst components - these will work once students implement them
 try:
-    from src.risk_analyst_agent import RiskAnalystAgent
-    from src.foundation_sar import (
+    from risk_analyst_agent import RiskAnalystAgent
+    from foundation_sar import (
         RiskAnalystOutput,
         ExplainabilityLogger,
         CaseData,
@@ -102,14 +102,14 @@ class TestRiskAnalystAgent:
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message.content = '''```json
-{
-    "classification": "Structuring",
-    "confidence_score": 0.85,
-    "reasoning": "Multiple transactions just under $10,000 threshold suggest structuring",
-    "key_indicators": ["threshold avoidance", "repeated amounts", "cash deposits"],
-    "risk_level": "High"
-}
-```'''
+        {
+            "classification": "Structuring",
+            "confidence_score": 0.85,
+            "reasoning": "Multiple transactions just under $10,000 threshold suggest structuring",
+            "key_indicators": ["threshold avoidance", "repeated amounts", "cash deposits"],
+            "risk_level": "High"
+        }
+        ```'''
         mock_client.chat.completions.create.return_value = mock_response
         
         # Setup logger
@@ -238,16 +238,16 @@ class TestRiskAnalystAgent:
         agent = RiskAnalystAgent(Mock(), Mock())
         
         response_with_json_block = '''Here is the analysis:
-```json
-{
-    "classification": "Fraud",
-    "confidence_score": 0.9,
-    "reasoning": "Clear fraud indicators",
-    "key_indicators": ["suspicious_pattern"],
-    "risk_level": "Critical"
-}
-```
-That completes the analysis.'''
+        ```json
+        {
+            "classification": "Fraud",
+            "confidence_score": 0.9,
+            "reasoning": "Clear fraud indicators",
+            "key_indicators": ["suspicious_pattern"],
+            "risk_level": "Critical"
+        }
+        ```
+        That completes the analysis.'''
         
         extracted = agent._extract_json_from_response(response_with_json_block)
         parsed = json.loads(extracted)
