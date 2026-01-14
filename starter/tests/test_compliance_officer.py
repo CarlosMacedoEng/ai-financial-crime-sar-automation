@@ -18,8 +18,8 @@ from datetime import datetime
 from unittest.mock import Mock
 
 # Import source code directly from starter module
-from src.compliance_officer_agent import ComplianceOfficerAgent
-from src.foundation_sar import (
+from compliance_officer_agent import ComplianceOfficerAgent
+from foundation_sar import (
     CustomerData, AccountData, TransactionData, CaseData,
     ComplianceOfficerOutput, RiskAnalystOutput, ExplainabilityLogger
 )
@@ -27,9 +27,9 @@ from src.foundation_sar import (
 # Skip detection - Check if compliance officer has real implementation
 try:
     # Try to create a test instance to see if the class is implemented
-    test_client = Mock()
-    test_logger = Mock()
-    test_agent = ComplianceOfficerAgent(test_client, test_logger)
+    mock_client = Mock()
+    mock_logger = Mock()
+    test_agent = ComplianceOfficerAgent(mock_client, mock_logger)
     
     # Check for actual implementation vs placeholder
     has_real_prompt = (hasattr(test_agent, 'system_prompt') and 
