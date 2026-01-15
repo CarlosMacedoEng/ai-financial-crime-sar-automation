@@ -64,7 +64,7 @@ class CustomerData(BaseModel):
 class AccountData(BaseModel):
     account_id: str = Field(..., description="Unique account identifier like CUST_0001_ACC_1")
     customer_id: str = Field(..., description="Owning customer_id")
-    account_type: Literal["Checking", "Savings", "Money_Market"] = Field(...)
+    account_type: Literal["Checking", "Savings", "Money_Market", "Business_Checking", "Credit_Card"] = Field(...)
     opening_date: str = Field(..., description="Opening date in YYYY-MM-DD")
     current_balance: float = Field(..., description="Current balance (can be negative for overdraft)")
     average_monthly_balance: float = Field(..., description="Average monthly balance")

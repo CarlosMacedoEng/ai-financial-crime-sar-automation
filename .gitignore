@@ -2,3 +2,4 @@ starter/src/__pycache__/*
 starter/tests/__pycache__/*
 starter/outputs/audit_logs/*
 .vscode/settings.json
+starter/outputs/filed_sars/*

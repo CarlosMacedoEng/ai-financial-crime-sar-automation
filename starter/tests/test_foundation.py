@@ -10,7 +10,7 @@ from datetime import datetime
 
 # Import foundation components - these will work once students implement them
 try:
-    from src.foundation_sar import (
+    from foundation_sar import (
         CustomerData,
         AccountData, 
         TransactionData,
