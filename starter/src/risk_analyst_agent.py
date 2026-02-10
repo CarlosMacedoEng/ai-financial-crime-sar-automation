@@ -60,6 +60,7 @@ class RiskAnalystAgent:
         self.client = openai_client
         self.logger = explainability_logger
         self.model = model
+        self.max_repair_attempts = 1
 
         self.system_prompt = (
             "You are a Risk Analyst specializing in Financial Crime detection and SAR triage.\n"
@@ -83,6 +84,13 @@ class RiskAnalystAgent:
             '  "classification": "Structuring|Sanctions|Fraud|Money_Laundering|Other",\n'
             '  "confidence_score": 0.0-1.0,\n'
             '  "reasoning": "string (concise, professional)",\n'
+            '  "analysis_steps": [\n'
+            '    "1) Data Review: ...",\n'
+            '    "2) Pattern Recognition: ...",\n'
+            '    "3) Regulatory Mapping: ...",\n'
+            '    "4) Risk Quantification: ...",\n'
+            '    "5) Classification Decision: ..."\n'
+            "  ],\n"
             '  "key_indicators": ["string", "string", ...],\n'
             '  "risk_level": "Low|Medium|High|Critical"\n'
             "}\n\n"
@@ -90,6 +98,7 @@ class RiskAnalystAgent:
             "- Return JSON only.\n"
             "- Do not include markdown.\n"
             "- Ensure confidence_score is a number between 0 and 1.\n"
+            "- analysis_steps must be an ordered JSON array with exactly 5 steps.\n"
             "- key_indicators must be a JSON array of strings.\n"
         )
 
@@ -115,19 +124,9 @@ class RiskAnalystAgent:
 
         user_prompt = self._format_case_for_prompt(case_data)
 
-        # OpenAI call (tests assert these parameters)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0.3,
-            max_tokens=1000,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-
-        # Defensive extraction of response content
+        # OpenAI call with API failure logging
         try:
+            response = self._request_analysis_completion(user_prompt)
             response_content = response.choices[0].message.content
         except Exception as e:
             finished_at = datetime.now(timezone.utc)
@@ -137,19 +136,17 @@ class RiskAnalystAgent:
                 case_id=case_id,
                 input_data={"case_id": case_id},
                 output_data={},
-                reasoning=f"Model response missing expected structure: {e}",
+                reasoning="OpenAI API call failed while analyzing case",
                 started_at=started_at,
                 finished_at=finished_at,
                 success=False,
                 error_message=str(e),
             )
-            raise
+            raise RuntimeError(f"RiskAnalyst API call failed for case '{case_id}': {e}") from e
 
-        # Parse JSON
-        try:
-            json_str = self._extract_json_from_response(response_content)
-            parsed = json.loads(json_str)
-        except Exception as e:
+        # Parse JSON with a deliberate fallback repair attempt
+        parsed, used_repair, parse_error = self._parse_with_repair(response_content)
+        if parsed is None:
             finished_at = datetime.now(timezone.utc)
             self._log_action(
                 agent_type="RiskAnalyst",
@@ -157,13 +154,13 @@ class RiskAnalystAgent:
                 case_id=case_id,
                 input_data={"case_id": case_id},
                 output_data={},
-                reasoning=f"JSON parsing failed: {e}",
+                reasoning="JSON parsing failed after repair fallback",
                 started_at=started_at,
                 finished_at=finished_at,
                 success=False,
-                error_message=str(e),
+                error_message=parse_error or "Unknown parsing error",
             )
-            # IMPORTANT: tests expect this exact message for any parsing failure
+            # IMPORTANT: preserve expected message for parsing failure path
             raise ValueError("Failed to parse Risk Analyst JSON output")
 
         # Validate required fields (unit tests rely on failure path)
@@ -195,6 +192,17 @@ class RiskAnalystAgent:
                 key_indicators = [str(key_indicators_raw)] if key_indicators_raw is not None else []
             else:
                 key_indicators = [str(x) for x in key_indicators_raw]
+            analysis_steps_raw = parsed.get("analysis_steps", [])
+            if isinstance(analysis_steps_raw, list):
+                analysis_steps = [str(x) for x in analysis_steps_raw if str(x).strip()]
+            elif analysis_steps_raw is None:
+                analysis_steps = []
+            else:
+                analysis_steps = [str(analysis_steps_raw)]
+
+            # Backward-compatible fallback when model omits explicit steps.
+            if len(analysis_steps) < 5:
+                analysis_steps = self._build_default_analysis_steps(case_data, classification, reasoning, risk_level)
         except Exception as e:
             finished_at = datetime.now(timezone.utc)
             self._log_action(
@@ -217,6 +225,7 @@ class RiskAnalystAgent:
                 classification=classification,
                 confidence_score=confidence_score,
                 reasoning=reasoning,
+                analysis_steps=analysis_steps,
                 key_indicators=key_indicators,
                 risk_level=risk_level,
             )
@@ -243,8 +252,11 @@ class RiskAnalystAgent:
             action="analyze_case",
             case_id=case_id,
             input_data={"case_id": case_id},
-            output_data=result.model_dump() if hasattr(result, "model_dump") else dict(result),
-            reasoning=reasoning,
+            output_data={
+                **(result.model_dump() if hasattr(result, "model_dump") else dict(result)),
+                "fallback_repair_used": used_repair,
+            },
+            reasoning=reasoning if not used_repair else f"{reasoning} [recovered_via_repair_retry]",
             started_at=started_at,
             finished_at=finished_at,
             success=True,
@@ -252,6 +264,62 @@ class RiskAnalystAgent:
         )
 
         return result
+
+    def _request_analysis_completion(self, user_prompt: str):
+        return self.client.chat.completions.create(
+            model=self.model,
+            temperature=0.3,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+    def _request_repair_completion(self, broken_response: str):
+        repair_system_prompt = (
+            "You are a strict JSON repair assistant. "
+            "Return exactly one valid JSON object and nothing else."
+        )
+        repair_user_prompt = (
+            "Repair the following model output into valid JSON that matches this schema exactly:\n"
+            "{"
+            '"classification":"Structuring|Sanctions|Fraud|Money_Laundering|Other",'
+            '"confidence_score":0.0,'
+            '"reasoning":"string",'
+            '"analysis_steps":["1) ...","2) ...","3) ...","4) ...","5) ..."],'
+            '"key_indicators":["string"],'
+            '"risk_level":"Low|Medium|High|Critical"'
+            "}\n\n"
+            f"Original output:\n{broken_response}"
+        )
+
+        return self.client.chat.completions.create(
+            model=self.model,
+            temperature=0.0,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": repair_system_prompt},
+                {"role": "user", "content": repair_user_prompt},
+            ],
+        )
+
+    def _parse_with_repair(self, response_content: str):
+        try:
+            json_str = self._extract_json_from_response(response_content)
+            return json.loads(json_str), False, None
+        except Exception as first_error:
+            for attempt in range(self.max_repair_attempts):
+                try:
+                    repair_response = self._request_repair_completion(response_content)
+                    repair_content = repair_response.choices[0].message.content
+                    json_str = self._extract_json_from_response(repair_content)
+                    repaired = json.loads(json_str)
+                    return repaired, True, None
+                except Exception as retry_error:
+                    if attempt == self.max_repair_attempts - 1:
+                        return None, False, f"Initial parse error: {first_error}; repair error: {retry_error}"
+            return None, False, str(first_error)
 
     def _extract_json_from_response(self, response_content: str) -> str:
         """
@@ -362,6 +430,33 @@ class RiskAnalystAgent:
                 f"status: {getattr(acc, 'status', '')}"
             )
         return "\n".join(lines) if lines else "No accounts provided."
+
+    def _build_default_analysis_steps(
+        self,
+        case_data: Any,
+        classification: str,
+        reasoning: str,
+        risk_level: str,
+    ) -> List[str]:
+        transactions = getattr(case_data, "transactions", []) or []
+        accounts = getattr(case_data, "accounts", []) or []
+        amount_total = 0.0
+        for t in transactions:
+            try:
+                amount_total += float(getattr(t, "amount", 0.0))
+            except Exception:
+                continue
+
+        return [
+            (
+                f"1) Data Review: Reviewed customer profile, {len(accounts)} account(s), "
+                f"and {len(transactions)} transaction(s) with total amount ${amount_total:,.2f}."
+            ),
+            "2) Pattern Recognition: Evaluated transaction behavior for threshold avoidance, anomaly clusters, and counterparty/location red flags.",
+            "3) Regulatory Mapping: Mapped observed patterns to AML typologies (Structuring, Sanctions, Fraud, Money_Laundering, Other).",
+            f"4) Risk Quantification: Assigned risk level '{risk_level}' with confidence based on signal strength and consistency.",
+            f"5) Classification Decision: Final classification is '{classification}' because {reasoning}",
+        ]
 
     def _format_transactions(self, transactions: List[Any]) -> str:
         """

@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-02-09T20:46:31.576281",
+  "total_cases": 5,
+  "passed": 5,
+  "pass_rate": 1.0,
+  "results": [
+    {
+      "case_id": "CASE_STRUCTURING",
+      "expected_classification": "Structuring",
+      "actual_classification": "Structuring",
+      "match": true,
+      "confidence_score": 0.87,
+      "risk_level": "High",
+      "analysis_steps_count": 5
+    },
+    {
+      "case_id": "CASE_SANCTIONS",
+      "expected_classification": "Sanctions",
+      "actual_classification": "Sanctions",
+      "match": true,
+      "confidence_score": 0.91,
+      "risk_level": "Critical",
+      "analysis_steps_count": 5
+    },
+    {
+      "case_id": "CASE_FRAUD",
+      "expected_classification": "Fraud",
+      "actual_classification": "Fraud",
+      "match": true,
+      "confidence_score": 0.79,
+      "risk_level": "High",
+      "analysis_steps_count": 5
+    },
+    {
+      "case_id": "CASE_ML",
+      "expected_classification": "Money_Laundering",
+      "actual_classification": "Money_Laundering",
+      "match": true,
+      "confidence_score": 0.88,
+      "risk_level": "Critical",
+      "analysis_steps_count": 5
+    },
+    {
+      "case_id": "CASE_OTHER",
+      "expected_classification": "Other",
+      "actual_classification": "Other",
+      "match": true,
+      "confidence_score": 0.62,
+      "risk_level": "Medium",
+      "analysis_steps_count": 5
+    }
+  ]
+}
