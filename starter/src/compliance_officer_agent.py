@@ -19,7 +19,7 @@ YOUR TASKS:
 import json
 import re
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 from foundation_sar import (
     ComplianceOfficerOutput,
@@ -46,6 +46,23 @@ class ComplianceOfficerAgent:
         self.logger = explainability_logger
         self.model = model
         self.max_repair_attempts = 1
+        self.max_compliance_repair_attempts = 1
+        self.speculative_phrases = [
+            "i think",
+            "maybe",
+            "probably",
+            "possibly",
+            "might be",
+            "could be",
+            "appears to",
+        ]
+        self.allowed_citation_patterns = [
+            r"31\s*CFR\s*1020\.320",
+            r"31\s*USC\s*5318\s*\(?g\)?",
+            r"31\s*USC\s*5324",
+            r"FinCEN\s+SAR\s+Instructions",
+            r"12\s*CFR\s*21\.11",
+        ]
 
         self.system_prompt = """
             You are a Senior Compliance Officer specializing in BSA/AML regulations.
@@ -119,12 +136,20 @@ class ComplianceOfficerAgent:
 
             narrative_text = parsed_json.get("narrative", "")
             self._validate_narrative_compliance(narrative_text)
+            parsed_json, used_content_repair = self._validate_or_repair_content(
+                parsed_json=parsed_json,
+                case_data=case_data,
+                risk_analysis=risk_analysis,
+                case_summary=case_summary,
+                risk_summary=risk_summary,
+            )
+            narrative_text = parsed_json.get("narrative", "")
 
             output = ComplianceOfficerOutput(
                 narrative=narrative_text,
                 narrative_reasoning=parsed_json.get("narrative_reasoning", ""),
                 regulatory_citations=parsed_json.get("regulatory_citations", []),
-                completeness_check=parsed_json.get("completeness_check", False),
+                completeness_check=True,
             )
 
             execution_time_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -140,7 +165,7 @@ class ComplianceOfficerAgent:
                 output_data=parsed_json,
                 reasoning=(
                     parsed_json.get("narrative_reasoning", "No reasoning provided")
-                    if not used_repair
+                    if not (used_repair or used_content_repair)
                     else f"{parsed_json.get('narrative_reasoning', 'No reasoning provided')} [recovered_via_repair_retry]"
                 ),
                 execution_time_ms=execution_time_ms,
@@ -236,6 +261,162 @@ class ComplianceOfficerAgent:
                     if attempt == self.max_repair_attempts - 1:
                         return None, False, f"Initial parse error: {first_error}; repair error: {retry_error}"
             return None, False, str(first_error)
+
+    def _validate_or_repair_content(
+        self,
+        parsed_json: Dict[str, Any],
+        case_data: CaseData,
+        risk_analysis: RiskAnalystOutput,
+        case_summary: str,
+        risk_summary: str,
+    ) -> Tuple[Dict[str, Any], bool]:
+        errors = self._compliance_content_errors(parsed_json, case_data, risk_analysis)
+        if not errors:
+            parsed_json["completeness_check"] = True
+            return parsed_json, False
+
+        for attempt in range(self.max_compliance_repair_attempts):
+            try:
+                repaired_response = self._request_compliance_repair(
+                    case_summary=case_summary,
+                    risk_summary=risk_summary,
+                    current_output=parsed_json,
+                    errors=errors,
+                )
+                repaired_content = repaired_response.choices[0].message.content
+                repaired_json, _, parse_error = self._parse_with_repair(repaired_content)
+                if repaired_json is None:
+                    raise ValueError(parse_error or "Compliance repair returned invalid JSON")
+                repaired_errors = self._compliance_content_errors(repaired_json, case_data, risk_analysis)
+                if repaired_errors:
+                    raise ValueError("; ".join(repaired_errors))
+                repaired_json["completeness_check"] = True
+                return repaired_json, True
+            except Exception:
+                if attempt == self.max_compliance_repair_attempts - 1:
+                    break
+
+        raise ValueError(f"Compliance validation failed: {'; '.join(errors)}")
+
+    def _request_compliance_repair(
+        self,
+        case_summary: str,
+        risk_summary: str,
+        current_output: Dict[str, Any],
+        errors: List[str],
+    ):
+        repair_system_prompt = (
+            "You are a compliance QA reviewer. "
+            "Return exactly one corrected JSON object and nothing else."
+        )
+        repair_user_prompt = (
+            "The JSON output below failed compliance checks. "
+            "Repair it while keeping narrative under 120 words and preserving factual objectivity.\n\n"
+            f"Missing/invalid items: {errors}\n\n"
+            "Case data:\n"
+            f"{case_summary}\n\n"
+            "Risk analysis:\n"
+            f"{risk_summary}\n\n"
+            "Current JSON:\n"
+            f"{json.dumps(current_output)}\n\n"
+            "Return JSON schema exactly:\n"
+            "{"
+            '"narrative":"string",'
+            '"narrative_reasoning":"string",'
+            '"regulatory_citations":["string"],'
+            '"completeness_check":true'
+            "}"
+        )
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": repair_system_prompt},
+                {"role": "user", "content": repair_user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=800,
+            response_format={"type": "json_object"},
+        )
+
+    def _compliance_content_errors(
+        self,
+        parsed_json: Dict[str, Any],
+        case_data: CaseData,
+        risk_analysis: RiskAnalystOutput,
+    ) -> List[str]:
+        errors: List[str] = []
+        narrative = str(parsed_json.get("narrative", "")).strip()
+        citations_raw = parsed_json.get("regulatory_citations", [])
+        citations = citations_raw if isinstance(citations_raw, list) else [citations_raw]
+        citations = [str(c).strip() for c in citations if str(c).strip()]
+
+        if not self._has_subject_identifier(narrative, case_data):
+            errors.append("missing subject identifier (customer name or customer ID)")
+        if not self._has_date_reference(narrative):
+            errors.append("missing date or timeframe reference")
+        if not self._has_amount_reference(narrative):
+            errors.append("missing amount or total reference")
+        if not self._has_indicator_reference(narrative, risk_analysis):
+            errors.append("missing suspicious indicator or typology reference")
+        citation_errors = self._citation_errors(citations)
+        errors.extend(citation_errors)
+        if self._has_speculative_language(narrative):
+            errors.append("contains speculative/non-objective language")
+
+        return errors
+
+    def _has_subject_identifier(self, narrative: str, case_data: CaseData) -> bool:
+        text = narrative.lower()
+        name = (case_data.customer.name or "").lower()
+        customer_id = (case_data.customer.customer_id or "").lower()
+        return bool((name and name in text) or (customer_id and customer_id in text))
+
+    def _has_date_reference(self, narrative: str) -> bool:
+        date_patterns = [
+            r"\b\d{4}-\d{2}-\d{2}\b",
+            r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+            r"\bfrom\b.*\bto\b",
+            r"\bover\b.*\bdays?\b",
+        ]
+        return any(re.search(pattern, narrative, flags=re.IGNORECASE) for pattern in date_patterns)
+
+    def _has_amount_reference(self, narrative: str) -> bool:
+        return bool(
+            re.search(r"\$\s?\d{1,3}(,\d{3})*(\.\d{2})?", narrative)
+            or re.search(r"\btotal(?:ing)?\s+\d", narrative, flags=re.IGNORECASE)
+        )
+
+    def _has_indicator_reference(self, narrative: str, risk_analysis: RiskAnalystOutput) -> bool:
+        text = narrative.lower()
+        typology_terms = [
+            "structuring",
+            "sanctions",
+            "fraud",
+            "money laundering",
+            "suspicious activity",
+            "red flag",
+            "threshold",
+            "layering",
+        ]
+        if any(term in text for term in typology_terms):
+            return True
+        return any(str(ind).lower() in text for ind in getattr(risk_analysis, "key_indicators", []))
+
+    def _has_speculative_language(self, narrative: str) -> bool:
+        text = narrative.lower()
+        return any(phrase in text for phrase in self.speculative_phrases)
+
+    def _citation_errors(self, citations: List[str]) -> List[str]:
+        if not citations:
+            return ["missing regulatory citations"]
+        is_valid = False
+        for citation in citations:
+            if any(re.search(pattern, citation, flags=re.IGNORECASE) for pattern in self.allowed_citation_patterns):
+                is_valid = True
+                break
+        if not is_valid:
+            return ["regulatory citations missing recognized BSA/AML reference format"]
+        return []
 
     def _extract_json_from_response(self, response_content: str) -> str:
         """

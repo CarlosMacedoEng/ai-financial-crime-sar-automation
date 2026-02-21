@@ -420,7 +420,7 @@ This completes the analysis.'''
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = '''{"narrative": "Test narrative", "narrative_reasoning": "Test", "regulatory_citations": ["Test"], "completeness_check": true}'''
+        mock_response.choices[0].message.content = '''{"narrative": "Customer API Test (CUST_API) made a $1,000.00 transaction on 2025-01-01 with suspicious activity indicators that warrant review.", "narrative_reasoning": "Test", "regulatory_citations": ["31 CFR 1020.320"], "completeness_check": true}'''
         mock_client.chat.completions.create.return_value = mock_response
         
         logger = ExplainabilityLogger("test_api_compliance.jsonl")

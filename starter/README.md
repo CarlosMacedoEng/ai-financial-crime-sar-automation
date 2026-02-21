@@ -411,3 +411,37 @@ Remember: This project simulates real regulatory requirements. Focus on building
 ---
 
 **Ready to build the future of financial crime detection? Let's get started! 🚀**
+
+## Implementation Notes
+
+### What was customized beyond the starter template
+- Data preprocessing and ingestion hardening: CSV ingestion now normalizes pandas typing artifacts (`NaN`, numeric IDs read as numbers) and raises targeted file/field-level ingestion errors.
+- Risk Analyst output transparency: `RiskAnalystOutput` includes `analysis_steps` and the risk agent emits step-aligned reasoning plus fallback metadata when repair retry is used.
+- Compliance gate enforcement: Compliance narratives are validated deterministically for SAR-required anchors (subject, date/timeframe, amount, suspicious indicator), citation presence/format, objective tone, and 120-word max.
+- Fallback strategy: Both agents implement one strict JSON repair retry for malformed LLM responses instead of immediate hard-fail.
+- Human gate + audit chain: Human decisions are logged as first-class `ExplainabilityLogger` events (`agent_type="HumanReviewer"`) to preserve end-to-end traceability.
+- SAR output schema upgrades: Generated SAR docs now include `case_id`, ISO-8601 generation timestamp, and a `decision_summary` block with AI + human outcomes.
+
+### How to run the end-to-end workflow
+1. Install dependencies:
+```bash
+pip install -r starter/requirements.txt
+```
+2. Run tests:
+```bash
+PYTHONPATH=starter/src python -m pytest starter/tests -q
+```
+3. Generate workflow artifacts (deterministic fake clients for reproducible review):
+```bash
+python starter/src/workflow_integration.py
+```
+
+### Environment variables
+- For notebook or real API execution, set `OPENAI_API_KEY` in `.env`.
+- The scripted workflow (`workflow_integration.py`) defaults to fake clients, so it runs without external credentials.
+
+### Expected generated artifacts
+- `starter/outputs/filed_sars/SAR-<ID>.json`
+- `starter/outputs/audit_logs/workflow_integration.jsonl`
+- `starter/outputs/audit_logs/workflow_metrics.json`
+- `starter/outputs/risk_typology_evaluation.json`

@@ -153,7 +153,7 @@ def test_compliance_agent_repair_retry_recovers_invalid_json(tmp_path):
     client = Mock()
     invalid_response = _response_with_content("malformed")
     repaired_payload = {
-        "narrative": "Customer showed suspicious near-threshold cash activity requiring SAR review.",
+        "narrative": "Test Customer (CASE_COMP_REPAIR_CUST) made a $9,900.00 cash deposit on 2025-01-01 with suspicious structuring indicators requiring SAR review.",
         "narrative_reasoning": "Repaired JSON and preserved key compliance facts.",
         "regulatory_citations": ["31 CFR 1020.320"],
         "completeness_check": True,
@@ -170,3 +170,49 @@ def test_compliance_agent_repair_retry_recovers_invalid_json(tmp_path):
     assert len(logger.entries) == 1
     assert logger.entries[0]["success"] is True
     assert "recovered_via_repair_retry" in (logger.entries[0]["reasoning"] or "")
+
+
+def test_compliance_agent_content_repair_adds_missing_citation(tmp_path):
+    client = Mock()
+    initial_payload = {
+        "narrative": "Test Customer (CASE_COMP_REPAIR_CUST) made a $9,900.00 cash deposit on 2025-01-01 with suspicious structuring indicators requiring SAR review.",
+        "narrative_reasoning": "Initial output missing citation.",
+        "regulatory_citations": [],
+        "completeness_check": False,
+    }
+    repaired_payload = {
+        "narrative": "Test Customer (CASE_COMP_REPAIR_CUST) made a $9,900.00 cash deposit on 2025-01-01 with suspicious structuring indicators requiring SAR review.",
+        "narrative_reasoning": "Added mandatory citation.",
+        "regulatory_citations": ["31 CFR 1020.320"],
+        "completeness_check": True,
+    }
+    client.chat.completions.create.side_effect = [
+        _response_with_content(json.dumps(initial_payload)),
+        _response_with_content(json.dumps(repaired_payload)),
+    ]
+
+    logger = ExplainabilityLogger(str(tmp_path / "test_compliance_content_repair.jsonl"))
+    agent = ComplianceOfficerAgent(client, logger)
+    output = agent.generate_compliance_narrative(_build_case("CASE_COMP_REPAIR"), _risk_analysis())
+
+    assert output.completeness_check is True
+    assert output.regulatory_citations
+
+
+def test_compliance_agent_rejects_speculative_tone_after_retry(tmp_path):
+    client = Mock()
+    speculative_payload = {
+        "narrative": "I think Test Customer (CASE_COMP_REPAIR_CUST) maybe made a $9,900.00 cash deposit on 2025-01-01 and could be suspicious.",
+        "narrative_reasoning": "Speculative wording.",
+        "regulatory_citations": ["31 CFR 1020.320"],
+        "completeness_check": True,
+    }
+    client.chat.completions.create.side_effect = [
+        _response_with_content(json.dumps(speculative_payload)),
+        _response_with_content(json.dumps(speculative_payload)),
+    ]
+
+    logger = ExplainabilityLogger(str(tmp_path / "test_compliance_speculative_fail.jsonl"))
+    agent = ComplianceOfficerAgent(client, logger)
+    with pytest.raises(ValueError, match="Compliance validation failed"):
+        agent.generate_compliance_narrative(_build_case("CASE_COMP_REPAIR"), _risk_analysis())
